@@ -220,6 +220,9 @@ enum fsm_event p2p_event(struct port *p, int fd_index)
 		if (tc_forward(p, msg)) {
 			event = EV_FAULT_DETECTED;
 		}
+		if (dup && clock_manage(p->clock, p, dup)) {
+			event = EV_STATE_DECISION_EVENT;
+		}
 		break;
 	}
 
