@@ -246,9 +246,9 @@ void clock_send_notification(struct clock *c, struct ptp_message *msg,
 	unsigned int event_pos = event / 8;
 	uint8_t mask = 1 << (event % 8);
 	struct port *uds = c->uds_port;
-	struct clock_subscriber *s;
+	struct clock_subscriber *s, *tmp;
 
-	LIST_FOREACH(s, &c->subscribers, list) {
+	LIST_FOREACH_SAFE(s, &c->subscribers, list, tmp) {
 		if (!(s->events[event_pos] & mask))
 			continue;
 		/* send event */
@@ -259,7 +259,12 @@ void clock_send_notification(struct clock *c, struct ptp_message *msg,
 		msg->management.targetPortIdentity.portNumber =
 			htons(s->targetPortIdentity.portNumber);
 		msg->address = s->addr;
-		port_forward_to(uds, msg);
+		if (port_forward_to(uds, msg)) {
+			/* remove the subscriber in case of an error */
+			pr_info("subscriber %s removed due to delivery error",
+					pid2str(&s->targetPortIdentity));
+			remove_subscriber(s);
+		}
 	}
 }
 
