@@ -238,11 +238,13 @@ static void suffix_pre_send(struct ptp_message *msg)
 
 static void timestamp_post_recv(struct ptp_message *m, struct Timestamp *ts)
 {
-	uint32_t lsb = ntohl(ts->seconds_lsb);
-	uint16_t msb = ntohs(ts->seconds_msb);
+	ts->seconds_lsb = ntohl(ts->seconds_lsb);
+	ts->seconds_msb = ntohs(ts->seconds_msb);
+	ts->nanoseconds = ntohl(ts->nanoseconds);
 
-	m->ts.pdu.sec  = ((uint64_t)lsb) | (((uint64_t)msb) << 32);
-	m->ts.pdu.nsec = ntohl(ts->nanoseconds);
+	m->ts.pdu.sec  =   (uint64_t)ts->seconds_msb << 32
+			 | (uint64_t)ts->seconds_lsb;
+	m->ts.pdu.nsec = ts->nanoseconds;
 }
 
 static void timestamp_pre_send(struct Timestamp *ts)
