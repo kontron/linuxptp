@@ -143,6 +143,14 @@ struct port *clock_first_port(struct clock *c);
 void clock_follow_up_info(struct clock *c, struct follow_up_info_tlv *f);
 
 /**
+ * Append the follow_up info TLV to a ptp message.
+ * @param c  The clock instance.
+ * @param m  A follow_up message.
+ * @return   Zero on success, non-zero otherwise.
+ */
+int clock_follow_up_info_append(struct clock *c, struct ptp_message *m);
+
+/**
  * Determine if a clock is free running or not.
  * @param c  The clock instance.
  * @return   One if the clock is free running or zero otherwise.

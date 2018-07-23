@@ -1263,6 +1263,28 @@ void clock_follow_up_info(struct clock *c, struct follow_up_info_tlv *f)
 	       sizeof(c->status.lastGmPhaseChange));
 }
 
+int clock_follow_up_info_append(struct clock *c, struct ptp_message *m)
+{
+	struct follow_up_info_tlv *fui;
+	struct tlv_extra *extra;
+
+	extra = msg_tlv_append(m, sizeof(*fui));
+	if (!extra) {
+		return -1;
+	}
+	fui = (struct follow_up_info_tlv *) extra->tlv;
+	fui->type = TLV_ORGANIZATION_EXTENSION;
+	fui->length = sizeof(*fui) - sizeof(fui->type) - sizeof(fui->length);
+	memcpy(fui->id, ieee8021_id, sizeof(ieee8021_id));
+	fui->subtype[2] = 1;
+	fui->cumulativeScaledRateOffset =
+			(Integer32) (c->status.cumulativeScaledRateOffset +
+				      c->nrr * POW2_41 - POW2_41);
+
+	return 0;
+}
+
+
 int clock_free_running(struct clock *c)
 {
 	return c->free_running ? 1 : 0;
@@ -1924,6 +1946,11 @@ void clock_check_ts(struct clock *c, uint64_t ts)
 	if (c->sanity_check && clockcheck_sample(c->sanity_check, ts)) {
 		servo_reset(c->servo);
 	}
+}
+
+double clock_peer_rate_ratio(struct clock *c)
+{
+	return c->nrr;
 }
 
 double clock_rate_ratio(struct clock *c)

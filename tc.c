@@ -174,13 +174,18 @@ static void tc_complete_response(struct port *q, struct port *p,
 	tc_recycle(txd);
 }
 
+double clock_peer_rate_ratio(struct clock *c);
+struct follow_up_info_tlv *follow_up_info_extract(struct ptp_message *m);
+#define POW2_41 ((double)(1ULL << 41))
+
 static void tc_complete_syfup(struct port *q, struct port *p,
 			      struct ptp_message *msg, tmv_t residence)
 {
 	enum tc_match type = TC_MISMATCH;
 	struct ptp_message *fup;
 	struct tc_txd *txd;
-	Integer64 c1, c2;
+	Integer64 c1, c2, csro;
+	struct follow_up_info_tlv *fui;
 	int cnt;
 
 	TAILQ_FOREACH(txd, &p->tc_transmitted, list) {
@@ -218,6 +223,16 @@ static void tc_complete_syfup(struct port *q, struct port *p,
 		return;
 	}
 
+	if (p->follow_up_info) {
+		msg_post_recv(fup, ntohs(fup->header.messageLength));
+		fui = follow_up_info_extract(msg);
+		if (fui) {
+			csro = fui->cumulativeScaledRateOffset;
+			fui->cumulativeScaledRateOffset = csro + clock_peer_rate_ratio(p->clock) * POW2_41 - POW2_41;
+		}
+		msg_pre_send(fup);
+	}
+
 	c1 = net2host64(fup->header.correction);
 	c2 = c1 + tmv_to_TimeInterval(residence);
 	c2 += tmv_to_TimeInterval(q->peer_delay);
@@ -228,7 +243,16 @@ static void tc_complete_syfup(struct port *q, struct port *p,
 		pr_err("tc failed to forward follow up on port %d", portnum(p));
 		port_dispatch(p, EV_FAULT_DETECTED, 0);
 	}
-	/* Restore original correction value for next egress port. */
+
+	/* Restore original values for next egress port. */
+	if (p->follow_up_info) {
+		msg_post_recv(fup, ntohs(fup->header.messageLength));
+		if (fui) {
+			fui = follow_up_info_extract(msg);
+			fui->cumulativeScaledRateOffset = csro;
+		}
+		msg_pre_send(fup);
+	}
 	fup->header.correction = host2net64(c1);
 	TAILQ_REMOVE(&p->tc_transmitted, txd, list);
 	msg_put(txd->msg);

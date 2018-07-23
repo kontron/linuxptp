@@ -406,24 +406,6 @@ static int add_foreign_master(struct port *p, struct ptp_message *m)
 	return broke_threshold || diff;
 }
 
-static int follow_up_info_append(struct ptp_message *m)
-{
-	struct follow_up_info_tlv *fui;
-	struct tlv_extra *extra;
-
-	extra = msg_tlv_append(m, sizeof(*fui));
-	if (!extra) {
-		return -1;
-	}
-	fui = (struct follow_up_info_tlv *) extra->tlv;
-	fui->type = TLV_ORGANIZATION_EXTENSION;
-	fui->length = sizeof(*fui) - sizeof(fui->type) - sizeof(fui->length);
-	memcpy(fui->id, ieee8021_id, sizeof(ieee8021_id));
-	fui->subtype[2] = 1;
-
-	return 0;
-}
-
 static int net_sync_resp_append(struct port *p, struct ptp_message *m)
 {
 	struct timePropertiesDS tp = clock_time_properties(p->clock);
@@ -488,7 +470,7 @@ static int net_sync_resp_append(struct port *p, struct ptp_message *m)
 	return 0;
 }
 
-static struct follow_up_info_tlv *follow_up_info_extract(struct ptp_message *m)
+struct follow_up_info_tlv *follow_up_info_extract(struct ptp_message *m)
 {
 	struct follow_up_info_tlv *f;
 	struct tlv_extra *extra;
@@ -1601,7 +1583,7 @@ static int port_tx_sync_domain(struct port *p, struct address *dst,
 		fup->address = *dst;
 		fup->header.flagField[0] |= UNICAST;
 	}
-	if (p->follow_up_info && follow_up_info_append(fup)) {
+	if (p->follow_up_info && clock_follow_up_info_append(p->clock, fup)) {
 		pr_err("port %hu: append fup info failed", portnum(p));
 		err = -1;
 		goto out;
