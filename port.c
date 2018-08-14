@@ -193,7 +193,8 @@ struct fdarray *port_fda(struct port *port)
 	return &port->fda;
 }
 
-int set_tmo_log(int fd, unsigned int scale, int log_seconds)
+int set_tmo_log_proportional(int fd, unsigned int scale, int log_seconds,
+			     int percent)
 {
 	struct itimerspec tmo = {
 		{0, 0}, {0, 0}
@@ -217,7 +218,20 @@ int set_tmo_log(int fd, unsigned int scale, int log_seconds)
 	} else
 		tmo.it_value.tv_sec = scale * (1 << log_seconds);
 
+	/* take the slow path only for the unlikely case */
+	if (percent != 100) {
+		ns = tmo.it_value.tv_sec * NS_PER_SEC + tmo.it_value.tv_nsec;
+		ns = ns * 100 / percent;
+		tmo.it_value.tv_sec = ns / NS_PER_SEC;
+		tmo.it_value.tv_nsec = ns % NS_PER_SEC;
+	}
+
 	return timerfd_settime(fd, 0, &tmo, NULL);
+}
+
+int set_tmo_log(int fd, unsigned int scale, int log_seconds)
+{
+	return set_tmo_log_proportional(fd, scale, log_seconds, 100);
 }
 
 int set_tmo_lin(int fd, int seconds)
@@ -1089,6 +1103,13 @@ int port_set_delay_tmo(struct port *p)
 	}
 }
 
+int port_set_reverse_sync_tx_tmo(struct port *p)
+{
+	return set_tmo_log_proportional(p->fda.fd[FD_REV_SYNC_TX_TIMER], 1,
+					p->log_sync_interval,
+					p->reverseSyncRate);
+}
+
 static int port_set_manno_tmo(struct port *p)
 {
 	return set_tmo_log(p->fda.fd[FD_MANNO_TIMER], 1, p->logAnnounceInterval);
@@ -1495,7 +1516,8 @@ int port_tx_announce(struct port *p, struct address *dst)
 	return err;
 }
 
-int port_tx_sync(struct port *p, struct address *dst)
+static int port_tx_sync_domain(struct port *p, struct address *dst,
+			       UInteger8 domain_number)
 {
 	struct ptp_message *msg, *fup;
 	int err, event;
@@ -1516,15 +1538,6 @@ int port_tx_sync(struct port *p, struct address *dst)
 		return -1;
 	}
 
-	if (p->inhibit_multicast_service && !dst) {
-		return 0;
-	}
-	if (!port_capable(p)) {
-		return 0;
-	}
-	if (port_sync_incapable(p)) {
-		return 0;
-	}
 	msg = msg_allocate();
 	if (!msg) {
 		return -1;
@@ -1540,7 +1553,7 @@ int port_tx_sync(struct port *p, struct address *dst)
 	msg->header.tsmt               = SYNC | p->transportSpecific;
 	msg->header.ver                = PTP_VERSION;
 	msg->header.messageLength      = sizeof(struct sync_msg);
-	msg->header.domainNumber       = clock_domain_number(p->clock);
+	msg->header.domainNumber       = domain_number;
 	msg->header.sourcePortIdentity = p->portIdentity;
 	msg->header.sequenceId         = p->seqnum.sync++;
 	msg->header.control            = CTL_SYNC;
@@ -1602,6 +1615,26 @@ out:
 	msg_put(msg);
 	msg_put(fup);
 	return err;
+}
+
+int port_tx_sync(struct port *p, struct address *dst)
+{
+	if (p->inhibit_multicast_service && !dst) {
+		return 0;
+	}
+	if (!port_capable(p)) {
+		return 0;
+	}
+	if (port_sync_incapable(p)) {
+		return 0;
+	}
+
+	return port_tx_sync_domain(p, dst, clock_domain_number(p->clock));
+}
+
+int port_tx_reverse_sync(struct port *p, struct address *dst)
+{
+	return port_tx_sync_domain(p, dst, p->reverseSyncDomain);
 }
 
 /*
@@ -2463,6 +2496,7 @@ static void port_p2p_transition(struct port *p, enum port_state next)
 	port_clr_tmo(p->fda.fd[FD_MANNO_TIMER]);
 	port_clr_tmo(p->fda.fd[FD_SYNC_TX_TIMER]);
 	/* Leave FD_UNICAST_REQ_TIMER running. */
+	port_clr_tmo(p->fda.fd[FD_REV_SYNC_TX_TIMER]);
 
 	switch (next) {
 	case PS_INITIALIZING:
@@ -2494,6 +2528,9 @@ static void port_p2p_transition(struct port *p, enum port_state next)
 		/* fall through */
 	case PS_SLAVE:
 		port_set_announce_tmo(p);
+		if (p->reverseSyncEnabled) {
+			port_set_reverse_sync_tx_tmo(p);
+		}
 		break;
 	};
 }
@@ -2654,6 +2691,11 @@ static enum fsm_event bc_event(struct port *p, int fd_index)
 		pr_debug("port %hu: master sync timeout", portnum(p));
 		port_set_sync_tx_tmo(p);
 		return port_tx_sync(p, NULL) ? EV_FAULT_DETECTED : EV_NONE;
+
+	case FD_REV_SYNC_TX_TIMER:
+		pr_debug("port %hu: reverse sync timeout", portnum(p));
+		port_set_reverse_sync_tx_tmo(p);
+		return port_tx_reverse_sync(p, NULL) ? EV_FAULT_DETECTED : EV_NONE;
 
 	case FD_UNICAST_SRV_TIMER:
 		pr_debug("port %hu: unicast service timeout", portnum(p));
@@ -3090,6 +3132,9 @@ struct port *port_open(const char *phc_device,
 	p->tx_timestamp_offset <<= 16;
 	p->link_status = LINK_UP;
 	p->clock = clock;
+	p->reverseSyncEnabled = config_get_int(cfg, p->name, "reverseSyncEnabled");
+	p->reverseSyncRate = config_get_int(cfg, p->name, "reverseSyncRate");
+	p->reverseSyncDomain = config_get_int(cfg, p->name, "reverseSyncDomain");
 	p->trp = transport_create(cfg, transport);
 	if (!p->trp) {
 		goto err_port;

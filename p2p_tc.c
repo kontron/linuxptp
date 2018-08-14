@@ -59,6 +59,7 @@ void p2p_dispatch(struct port *p, enum fsm_event event, int mdiff)
 	port_clr_tmo(p->fda.fd[FD_QUALIFICATION_TIMER]);
 	port_clr_tmo(p->fda.fd[FD_MANNO_TIMER]);
 	port_clr_tmo(p->fda.fd[FD_SYNC_TX_TIMER]);
+	port_clr_tmo(p->fda.fd[FD_REV_SYNC_TX_TIMER]);
 
 	/*
 	 * Handle the side effects of the state transition.
@@ -86,6 +87,9 @@ void p2p_dispatch(struct port *p, enum fsm_event event, int mdiff)
 	case PS_UNCALIBRATED:
 	case PS_SLAVE:
 		port_set_announce_tmo(p);
+		if (p->reverseSyncEnabled) {
+			port_set_reverse_sync_tx_tmo(p);
+		}
 		break;
 	};
 }

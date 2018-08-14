@@ -262,6 +262,24 @@ int port_fault_fd(struct port *port);
 int set_tmo_log(int fd, unsigned int scale, int log_seconds);
 
 /**
+ * Utility function for setting or resetting a file descriptor timer.
+ *
+ * Same as 'set_tmo_log()' but with an additional parameter 'percent'
+ * which specifies a proportion in the frequency domain. Eg. the timer 'fd'
+ * is set to the value M(2^N) * 100 / percent.
+ *
+ * Passing both 'scale' and 'log_seconds' as zero disables the timer.
+ *
+ * @param fd A file descriptor previously opened with timerfd_create(2).
+ * @param scale The multiplicative factor for the timer.
+ * @param log_seconds The exponential factor for the timer.
+ * @param percent The proportion in percent.
+ * @return Zero on success, non-zero otherwise.
+ */
+int set_tmo_log_proportional(int fd, unsigned int scale, int log_seconds,
+			     int percent);
+
+/**
  * Utility function for setting a file descriptor timer.
  *
  * This function sets the timer 'fd' to a random value between M * 2^N and

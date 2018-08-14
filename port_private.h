@@ -153,6 +153,10 @@ struct port {
 	int inhibit_multicast_service;
 	/* slave event monitoring */
 	struct monitor *slave_event_monitor;
+	/* reverse sync */
+	int reverseSyncEnabled;
+	int reverseSyncRate;
+	int reverseSyncDomain;
 };
 
 #define portnum(p) (p->portIdentity.portNumber)
@@ -178,6 +182,7 @@ void port_link_status(void *ctx, int index, int linkup);
 int port_set_announce_tmo(struct port *p);
 int port_set_delay_tmo(struct port *p);
 int port_set_qualification_tmo(struct port *p);
+int port_set_reverse_sync_tx_tmo(struct port *p);
 void port_show_transition(struct port *p, enum port_state next,
 			  enum fsm_event event);
 struct ptp_message *port_signaling_uc_construct(struct port *p,
